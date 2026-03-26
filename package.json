@@ -1,0 +1,42 @@
+{
+  "name": "scratch",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "seed:minimal": "ts-node src/scripts/runSeed.ts",
+    "seed:real": "ts-node src/scripts/loadRealSeed.ts",
+    "seed:shared": "ts-node src/scripts/loadSharedContractsSeed.ts",
+    "seed:saas-clauses": "ts-node src/scripts/loadSaasClausesSeed.ts",
+    "patch:saas-blueprint-order": "ts-node src/scripts/saasBlueprintOrderingPatch.ts",
+    "test:matrix:mx15": "bash ./test_matrix_mx_15.sh",
+    "test:matrix:shared": "bash ./test_matrix_shared_set.sh",
+    "test:matrix:saas-clauses": "bash ./test_matrix_saas_clauses.sh",
+    "test:format-docx": "bash ./scripts/generate_format_test_docx.sh",
+    "validate:docx": "python3 scripts/validate_docx_format.py"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "docx": "^9.5.1",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "openai": "^6.17.0",
+    "pg": "^8.17.2",
+    "uuid": "^9.0.1",
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.1.0",
+    "@types/pg": "^8.16.0",
+    "@types/uuid": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

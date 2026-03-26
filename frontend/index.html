@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RAC Playground Local</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f7f7fb; color: #1f2430; }
+    h1 { margin: 0 0 8px; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; }
+    input, textarea, select, button { width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #c9ced6; }
+    textarea { min-height: 140px; resize: vertical; }
+    button { cursor: pointer; background: #2f6feb; color: #fff; border: none; font-weight: 600; }
+    button.secondary { background: #555; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    pre { white-space: pre-wrap; background: #0d1117; color: #c9d1d9; padding: 12px; border-radius: 8px; overflow: auto; max-height: 380px; }
+    .small { font-size: 13px; color: #555; margin: 0 0 10px; }
+    .ok { color: #117a37; font-weight: 700; }
+    .err { color: #a40000; font-weight: 700; }
+    a { color: #2f6feb; }
+  </style>
+</head>
+<body>
+  <h1>RAC Playground (Local)</h1>
+  <p class="small">Flujo: diagnose → retrieve → draft → docx. El catálogo activo en BD suele ser compraventa de vehículo / inmueble (seed saas_clauses); usa un ejemplo acorde para evitar BLUEPRINT_NOT_FOUND o diagnóstico detenido.</p>
+
+  <div class="card">
+    <label for="baseUrl">Base URL del backend</label>
+    <input id="baseUrl" value="http://localhost:3031" />
+
+    <div class="row">
+      <div>
+        <label for="jurisdiction">Jurisdicción</label>
+        <select id="jurisdiction">
+          <option value="MX">MX</option>
+          <option value="CO">CO</option>
+          <option value="US-DE">US-DE</option>
+        </select>
+      </div>
+      <div>
+        <label for="userRole">Rol</label>
+        <select id="userRole">
+          <option value="lawyer">lawyer</option>
+          <option value="sales">sales</option>
+          <option value="procurement">procurement</option>
+        </select>
+      </div>
+    </div>
+
+    <label for="requestText">Solicitud del usuario</label>
+    <textarea id="requestText">Necesito contrato de compraventa de vehículo en México entre Autos Delta SA de CV (Vendedor), RFC ADL900101ABC, domicilio Av. Insurgentes Sur 100 CDMX, representada por Juan Pérez, y Logística Norte SA de CV (Comprador), RFC LNO850601XYZ, domicilio Blvd. López Mateos 200 Monterrey, representada por Ana Ruiz. Vehículo Toyota Hilux 2022 color blanco, VIN 3HGBH41JXMN109186, placa ABC-12-D. Precio 620000 MXN, pago por transferencia. Factura y tarjeta de circulación. Tenencias pagadas hasta 2025.</textarea>
+
+    <button id="runAllBtn">Ejecutar flujo completo</button>
+    <button id="diagnoseBtn" class="secondary">Solo Diagnose</button>
+    <p id="status" class="small"></p>
+  </div>
+
+  <div class="card">
+    <label>generation_id</label>
+    <input id="generationId" placeholder="Se llena automaticamente" />
+    <div class="row">
+      <button id="retrieveBtn" class="secondary">Retrieve</button>
+      <button id="draftBtn" class="secondary">Draft</button>
+    </div>
+    <button id="docxBtn" class="secondary">Docx</button>
+    <p class="small">Si se genera DOCX, aparece link abajo.</p>
+    <p id="docxLink"></p>
+  </div>
+
+  <div class="card">
+    <label>Salida</label>
+    <pre id="output">Esperando acciones...</pre>
+  </div>
+
+  <script>
+    const output = document.getElementById('output');
+    const statusEl = document.getElementById('status');
+    const docxLink = document.getElementById('docxLink');
+
+    const getBase = () => document.getElementById('baseUrl').value.replace(/\/$/, '');
+    const getGenerationId = () => document.getElementById('generationId').value.trim();
+    const setGenerationId = (id) => { document.getElementById('generationId').value = id || ''; };
+
+    function setStatus(msg, ok = true) {
+      statusEl.textContent = msg;
+      statusEl.className = ok ? 'small ok' : 'small err';
+    }
+
+    function print(title, data) {
+      const block = `\n=== ${title} ===\n${JSON.stringify(data, null, 2)}\n`;
+      output.textContent += block;
+      output.scrollTop = output.scrollHeight;
+    }
+
+    async function api(path, method = 'POST', body = null) {
+      const res = await fetch(`${getBase()}${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const text = await res.text();
+      let json;
+      try { json = JSON.parse(text); } catch { json = { raw: text }; }
+      if (!res.ok) {
+        const err = new Error(json.message || json.error || `HTTP ${res.status} ${path}`);
+        err.name = 'ApiError';
+        err.status = res.status;
+        err.body = json;
+        throw err;
+      }
+      return json;
+    }
+
+    function printError(title, e) {
+      const payload = e && e.name === 'ApiError'
+        ? { httpStatus: e.status, message: e.message, body: e.body }
+        : { message: e && e.message ? e.message : String(e), stack: e && e.stack };
+      print(title, payload);
+    }
+
+    async function diagnose() {
+      const req = {
+        user_request: document.getElementById('requestText').value,
+        context: {
+          jurisdiction: document.getElementById('jurisdiction').value,
+          user_role: document.getElementById('userRole').value
+        }
+      };
+      const data = await api('/api/v1/diagnose', 'POST', req);
+      print('Diagnose', data);
+      if (data.success === false) {
+        const err = new Error(data.error || 'Diagnose rejected');
+        err.name = 'ApiError';
+        err.status = 200;
+        err.body = data;
+        throw err;
+      }
+      setGenerationId(data.generation_id || '');
+      const st = data.diagnosis && data.diagnosis.status;
+      if (st && st !== 'READY') {
+        print('Aviso', { diagnosis_status: st, note: 'El flujo puede continuar; el borrador puede quedar con datos faltantes si no completas la información.' });
+      }
+      return data;
+    }
+
+    async function retrieve() {
+      const id = getGenerationId();
+      if (!id) throw new Error('Falta generation_id');
+      const data = await api(`/api/v1/generate/${id}/retrieve`, 'POST');
+      print('Retrieve', data);
+      return data;
+    }
+
+    async function draft() {
+      const id = getGenerationId();
+      if (!id) throw new Error('Falta generation_id');
+      const data = await api(`/api/v1/generate/${id}/draft`, 'POST');
+      print('Draft', data);
+      return data;
+    }
+
+    async function docx() {
+      const id = getGenerationId();
+      if (!id) throw new Error('Falta generation_id');
+      const data = await api(`/api/v1/generate/${id}/docx`, 'POST');
+      print('Docx', data);
+
+      const filePath = data?.data?.file_path || data?.file_path;
+      if (filePath) {
+        const filename = filePath.split('/').pop();
+        const href = `${getBase()}/outputs/${filename}`;
+        docxLink.innerHTML = `<a href="${href}" target="_blank" rel="noopener">Abrir DOCX generado</a>`;
+      }
+      return data;
+    }
+
+    document.getElementById('diagnoseBtn').onclick = async () => {
+      try {
+        output.textContent = '';
+        docxLink.textContent = '';
+        setStatus('Ejecutando diagnose...');
+        await diagnose();
+        setStatus('Diagnose OK');
+      } catch (e) {
+        printError('Error', e);
+        setStatus('Diagnose falló', false);
+      }
+    };
+
+    document.getElementById('retrieveBtn').onclick = async () => {
+      try {
+        setStatus('Ejecutando retrieve...');
+        await retrieve();
+        setStatus('Retrieve OK');
+      } catch (e) {
+        printError('Error', e);
+        setStatus('Retrieve falló', false);
+      }
+    };
+
+    document.getElementById('draftBtn').onclick = async () => {
+      try {
+        setStatus('Ejecutando draft...');
+        await draft();
+        setStatus('Draft OK');
+      } catch (e) {
+        printError('Error', e);
+        setStatus('Draft falló', false);
+      }
+    };
+
+    document.getElementById('docxBtn').onclick = async () => {
+      try {
+        setStatus('Ejecutando docx...');
+        await docx();
+        setStatus('Docx OK');
+      } catch (e) {
+        printError('Error', e);
+        setStatus('Docx falló', false);
+      }
+    };
+
+    document.getElementById('runAllBtn').onclick = async () => {
+      try {
+        output.textContent = '';
+        docxLink.textContent = '';
+        setStatus('Ejecutando flujo completo...');
+        await diagnose();
+        await retrieve();
+        await draft();
+        await docx();
+        setStatus('Flujo completo OK');
+      } catch (e) {
+        printError('Error', e);
+        setStatus('Flujo completo falló — revisa el bloque Error abajo (httpStatus / body)', false);
+      }
+    };
+  </script>
+</body>
+</html>
